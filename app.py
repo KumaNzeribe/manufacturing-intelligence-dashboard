@@ -482,11 +482,67 @@ if inventory_file is not None:
                             '_signature': signature,
                         })
                 if not action_frames:
-                    st.info('No current purchasing, manufacturing, or expiration action items to review.')
+                    st.header('📊 Executive Overview')
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric('Monitored inventory rows', len(view))
+                    k2.metric('Stock shortages', int(
+                        (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
+                    k3.metric('Held BAT lots', int(
+                        bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
+                    k4.metric('Expiration-risk lots', int(
+                        (expiration_review_mask(expiry_actions) |
+                         (expiry_actions['Inventory Category'].eq('Finished Good') &
+                          expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
+                        if not expiry_actions.empty else 0)
+                    st.success('No currently flagged action items.')
                 else:
                     queue = pd.DataFrame(action_frames)
                     # Collapse duplicate item/area rows in the selector; review is item-level.
                     queue = queue.drop_duplicates(['Item No.', 'Area'], keep='first')
+                    # Executive overview: use the same filtered planning data and action queue.
+                    st.header('📊 Executive Overview')
+                    st.caption('Live snapshot of the selected Jeeves inventory scope and BAT imports. '
+                               'Counts reflect currently flagged actions, not all historical reviews.')
+
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric('Monitored inventory rows', len(view))
+                    k2.metric('Stock shortages', int(
+                        (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
+                    k3.metric('Held BAT lots', int(
+                        bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
+                    k4.metric('Expiration-risk lots', int(
+                        (expiration_review_mask(expiry_actions) |
+                         (expiry_actions['Inventory Category'].eq('Finished Good') &
+                          expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
+                        if not expiry_actions.empty else 0)
+
+                    q1, q2, q3 = st.columns(3)
+                    q1.metric('Needs Attention', int(queue['Queue'].eq('Needs Attention').sum()))
+                    q2.metric('In Progress', int(queue['Queue'].eq('In Progress').sum()))
+                    q3.metric('Resolved', int(queue['Queue'].eq('Resolved').sum()))
+
+                    chart_left, chart_right = st.columns(2)
+                    with chart_left:
+                        st.subheader('Action items by area')
+                        area_counts = queue.groupby('Area').size().rename('Action items')
+                        st.bar_chart(area_counts)
+                    with chart_right:
+                        st.subheader('Action queue status')
+                        status_counts = queue['Queue'].value_counts().reindex(
+                            ['Needs Attention', 'In Progress', 'Resolved'], fill_value=0)
+                        st.bar_chart(status_counts.rename('Action items'))
+
+                    with st.expander('🔍 Executive overview definitions'):
+                        st.caption('Stock shortages combine Jeeves and reconciled hold-adjusted alerts. '
+                                   'Held BAT lots count all imported positive-balance BAT lots, '
+                                   'regardless of the selected inventory filter. '
+                                   'Expiration-risk lots cover master-listed finished goods within six '
+                                   'months of expiration, chemicals within 90 days, unknown dates, '
+                                   'and finished goods approaching ship-down within 90 days. '
+                                   'Action items are unique per part number and action area. '
+                                   'This overview is informational; confirm actions in Jeeves/BAT.')
+                    st.divider()
+
                     groups = ['Needs Attention', 'In Progress', 'Resolved']
                     tabs = st.tabs([f'{name} ({int(queue["Queue"].eq(name).sum())})' for name in groups])
                     for tab, group_name in zip(tabs, groups):
