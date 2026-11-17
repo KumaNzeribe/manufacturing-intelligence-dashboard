@@ -111,16 +111,17 @@ def add_shipdown_fields(df):
 
 
 def expiration_review_mask(df):
-    """Finished goods: six calendar months; chemicals: 90 days."""
+    """Flag actual expiration risks only."""
     today = pd.Timestamp.today().normalize()
+
     fg = df['Inventory Category'].eq('Finished Good')
     threshold = today + pd.DateOffset(months=6)
     dates = df['Expiration date']
+
     return (
         (fg & dates.le(threshold))
         | (~fg & df['Days Until Expiration'].le(90))
         | dates.isna()
-        | df['Date Corrected']
     )
 
 
