@@ -2,12 +2,46 @@ from pathlib import Path
 import sqlite3
 import pandas as pd
 import streamlit as st
+import altair as alt
+from html import escape
 
 st.set_page_config(page_title='Manufacturing Intelligence', page_icon='🏭', layout='wide')
-st.title('🏭 Manufacturing Intelligence')
+
+# Presentation layer only: planning calculations remain unchanged.
+st.markdown("""<style>
+.stApp {background:#f3f6fa;color:#172b42;}
+[data-testid="stHeader"] {background:#f3f6fa;}
+[data-testid="stSidebar"] {background:#ffffff;border-right:1px solid #dce4ee;}
+.block-container {padding-top:2rem;padding-bottom:2rem;max-width:1600px;}
+h1,h2,h3 {color:#172b42 !important;letter-spacing:-.025em;}
+[data-testid="stMetric"] {background:#fff;border:1px solid #dce4ee;border-radius:12px;padding:16px;box-shadow:0 2px 5px #172b4208;}
+[data-testid="stMetricValue"] {font-weight:700;color:#172b42;}
+[data-testid="stSidebar"] [role="radiogroup"] label {padding:7px 10px;border-radius:7px;}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {background:#e8f0fc;}
+[data-testid="stDataFrame"] {border-radius:9px;}
+.mi-card {background:#fff;border:1px solid #dce4ee;border-radius:12px;padding:17px 18px;min-height:100px;box-shadow:0 2px 5px #172b4208;}
+.mi-label {font-size:13px;font-weight:600;color:#52647a;}
+.mi-value {font-size:32px;font-weight:750;line-height:1.5;}
+</style>""", unsafe_allow_html=True)
+
+def metric_card(column, label, value):
+    colors = {'Stock shortages':'#b42318','Held BAT lots':'#a15c08',
+              'Expiration-risk lots':'#a15c08','Needs Attention':'#b42318',
+              'In Progress':'#a15c08','Resolved':'#18794e'}
+    color = colors.get(label, '#2457a7')
+    column.markdown(f'<div class="mi-card"><div class="mi-label">{escape(label)}</div><div class="mi-value" style="color:{color}">{escape(str(value))}</div></div>', unsafe_allow_html=True)
+
+def horizontal_chart(series, status=False):
+    data = series.rename_axis('Category').reset_index(name='Count')
+    color = alt.Color('Category:N', scale=alt.Scale(domain=['Needs Attention','In Progress','Resolved'], range=['#b42318','#c08428','#23845b']), legend=None) if status else alt.value('#3975c6')
+    base = alt.Chart(data).encode(y=alt.Y('Category:N', sort=list(data['Category']), title=None), x=alt.X('Count:Q', title=None, axis=alt.Axis(grid=True, tickMinStep=1)), tooltip=['Category:N','Count:Q'])
+    chart = (base.mark_bar(size=23, cornerRadiusEnd=4).encode(color=color) + base.mark_text(align='left', dx=5, color='#172b42').encode(text='Count:Q')).properties(height=210).configure_view(stroke=None).configure_axis(labelColor='#52647a', gridColor='#e5eaf1', domain=False).configure(background='white', padding=15)
+    st.altair_chart(chart, use_container_width=True)
+
+st.title('Manufacturing Intelligence')
 st.caption('Jeeves inventory • purchasing and manufacturing • BAT lot intelligence')
 st.warning('Planning support only. Verify inventory, reservations, lot status, locations, and order status in Jeeves/BAT before acting. Century-adjusted dates require review.')
-st.sidebar.title('Navigation')
+st.sidebar.title('Workspace')
 page = st.sidebar.radio('Go to', ['Overview', 'Action Center', 'Inventory', 'Purchasing', 'Manufacturing', 'Hold Monitor', 'Expiration'], label_visibility='collapsed')
 st.sidebar.divider()
 MASTER_PATH = Path(__file__).resolve().parent / 'master_parts.xlsx'
@@ -496,14 +530,14 @@ if inventory_file is not None:
                         })
                 if not action_frames:
                     if page in ("Overview", "Action Center"):
-                        st.header('📊 Executive Overview')
+                        st.header('Operations Overview')
                         k1, k2, k3, k4 = st.columns(4)
-                        k1.metric('Monitored inventory rows', len(view))
-                        k2.metric('Stock shortages', int(
+                        metric_card(k1, 'Monitored inventory rows', len(view))
+                        metric_card(k2, 'Stock shortages', int(
                             (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
-                        k3.metric('Held BAT lots', int(
+                        metric_card(k3, 'Held BAT lots', int(
                             bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
-                        k4.metric('Expiration-risk lots', int(
+                        metric_card(k4, 'Expiration-risk lots', int(
                             (expiration_review_mask(expiry_actions) |
                              (expiry_actions['Inventory Category'].eq('Finished Good') &
                               expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
@@ -515,37 +549,37 @@ if inventory_file is not None:
                     queue = queue.drop_duplicates(['Item No.', 'Area'], keep='first')
                     # Executive overview: use the same filtered planning data and action queue.
                     if page == "Overview":
-                        st.header('📊 Executive Overview')
+                        st.header('Operations Overview')
                         st.caption('Live snapshot of the selected Jeeves inventory scope and BAT imports. '
                                    'Counts reflect currently flagged actions, not all historical reviews.')
 
                         k1, k2, k3, k4 = st.columns(4)
-                        k1.metric('Monitored inventory rows', len(view))
-                        k2.metric('Stock shortages', int(
+                        metric_card(k1, 'Monitored inventory rows', len(view))
+                        metric_card(k2, 'Stock shortages', int(
                             (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
-                        k3.metric('Held BAT lots', int(
+                        metric_card(k3, 'Held BAT lots', int(
                             bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
-                        k4.metric('Expiration-risk lots', int(
+                        metric_card(k4, 'Expiration-risk lots', int(
                             (expiration_review_mask(expiry_actions) |
                              (expiry_actions['Inventory Category'].eq('Finished Good') &
                               expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
                             if not expiry_actions.empty else 0)
 
                         q1, q2, q3 = st.columns(3)
-                        q1.metric('Needs Attention', int(queue['Queue'].eq('Needs Attention').sum()))
-                        q2.metric('In Progress', int(queue['Queue'].eq('In Progress').sum()))
-                        q3.metric('Resolved', int(queue['Queue'].eq('Resolved').sum()))
+                        metric_card(q1, 'Needs Attention', int(queue['Queue'].eq('Needs Attention').sum()))
+                        metric_card(q2, 'In Progress', int(queue['Queue'].eq('In Progress').sum()))
+                        metric_card(q3, 'Resolved', int(queue['Queue'].eq('Resolved').sum()))
 
                         chart_left, chart_right = st.columns(2)
                         with chart_left:
                             st.subheader('Action items by area')
                             area_counts = queue.groupby('Area').size().rename('Action items')
-                            st.bar_chart(area_counts)
+                            horizontal_chart(area_counts)
                         with chart_right:
                             st.subheader('Action queue status')
                             status_counts = queue['Queue'].value_counts().reindex(
                                 ['Needs Attention', 'In Progress', 'Resolved'], fill_value=0)
-                            st.bar_chart(status_counts.rename('Action items'))
+                            horizontal_chart(status_counts, status=True)
 
                         with st.expander('🔍 Executive overview definitions'):
                             st.caption('Stock shortages combine Jeeves and reconciled hold-adjusted alerts. '
