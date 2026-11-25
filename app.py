@@ -7,6 +7,9 @@ st.set_page_config(page_title='Manufacturing Intelligence', page_icon='🏭', la
 st.title('🏭 Manufacturing Intelligence')
 st.caption('Jeeves inventory • purchasing and manufacturing • BAT lot intelligence')
 st.warning('Planning support only. Verify inventory, reservations, lot status, locations, and order status in Jeeves/BAT before acting. Century-adjusted dates require review.')
+st.sidebar.title('Navigation')
+page = st.sidebar.radio('Go to', ['Overview', 'Action Center', 'Inventory', 'Purchasing', 'Manufacturing', 'Hold Monitor', 'Expiration'], label_visibility='collapsed')
+st.sidebar.divider()
 MASTER_PATH = Path(__file__).resolve().parent / 'master_parts.xlsx'
 REVIEW_DB_PATH = Path(__file__).resolve().parent / 'material_reviews.db'
 
@@ -139,7 +142,7 @@ def expiry_label(days):
     return 'Over 90 days'
 
 
-with st.expander('📁 ERP imports', expanded=True):
+with st.sidebar.expander('📁 ERP imports', expanded=True):
     inventory_file = st.file_uploader('Jeeves inventory export', type='xlsx', key='inventory')
     bat_file = st.file_uploader('BAT all positive-balance lots export', type='xlsx', key='bat')
 
@@ -156,7 +159,7 @@ else:
             if not duplicates.empty:
                 st.warning(f'Master list contains {len(duplicates)} duplicate rows; keeping first occurrence.')
             master = master.drop_duplicates('Item No.', keep='first')
-            st.success(f'Master list loaded: {len(master)} unique part numbers')
+            st.sidebar.success(f'Master list loaded: {len(master)} unique part numbers')
         else:
             master = None
     except Exception as exc:
@@ -188,7 +191,7 @@ if bat_file is not None:
                 BAT_Other=('Other Status Qty', 'sum'),
                 BAT_Lots=('Batch/Lot No.', 'size'),
             )
-            st.success(f'BAT loaded: {len(bat)} positive-balance lots across {len(lot_summary)} items')
+            st.sidebar.success(f'BAT loaded: {len(bat)} positive-balance lots across {len(lot_summary)} items')
     except Exception as exc:
         st.error(f'BAT import or processing error: {exc}')
 
@@ -211,6 +214,11 @@ if bat is not None and master is not None:
     expiry_actions['Expiration Status'] = expiry_actions['Days Until Expiration'].apply(expiry_label)
     expiry_actions = add_shipdown_fields(expiry_actions)
 
+if inventory_file is None and page not in ('Hold Monitor', 'Expiration'):
+    st.info('Upload a Jeeves inventory export in the sidebar to begin.')
+if bat_file is None and page in ('Hold Monitor', 'Expiration'):
+    st.info('Upload a BAT export in the sidebar to begin.')
+
 if inventory_file is not None:
     try:
         inv = read_excel(inventory_file)
@@ -231,11 +239,11 @@ if inventory_file is not None:
             else:
                 inv['On Master List'] = False
 
-            st.subheader('🔎 Inventory filters')
-            scope = st.radio('View', ['Monitored parts', 'All exported items'], horizontal=True,
+            st.sidebar.subheader('🔎 Inventory filters')
+            scope = st.sidebar.radio('View', ['Monitored parts', 'All exported items'], horizontal=True,
                              index=0 if master is not None else 1, disabled=master is None)
             view = inv[inv['On Master List']].copy() if scope == 'Monitored parts' else inv.copy()
-            query = st.text_input('Search item number or description', placeholder='Type part number or name')
+            query = st.sidebar.text_input('Search item number or description', placeholder='Type part number or name')
             if query:
                 view = view[view['Item No.'].str.contains(query, case=False, regex=False, na=False) |
                             view['Item description'].astype(str).str.contains(query, case=False, regex=False, na=False)]
@@ -276,24 +284,25 @@ if inventory_file is not None:
             view.loc[view['BAT_Total'].notna() & ~view['BAT Reconciled'], 'Review Reason'] = 'BAT/Jeeves mismatch or multiple inventory rows — review'
             view.loc[view['BAT Reconciled'] & view['BAT_Other'].gt(0), 'Review Reason'] = 'Other lot statuses excluded from usable stock — review'
 
-            st.header('📦 Inventory Overview')
-            a, b, c, d = st.columns(4)
-            a.metric('Inventory rows', len(view))
-            b.metric('Jeeves shortages', int(view['Jeeves Shortage Alert'].sum()))
-            c.metric('Hold-adjusted shortages', int(view['Adjusted Shortage Alert'].sum()))
-            d.metric('Hidden shortages', int(view['Hidden Shortage'].sum()))
-            st.caption('Adjusted alerts are shown only for items whose positive-balance BAT lot totals reconcile to Jeeves. Missing or mismatched items require manual review.')
-            cols = ['Item No.', 'Item description', 'Item Type', 'Inventory balance', 'RsrvQty', 'Net Stock',
-                    'BAT_Held', 'BAT_Released', 'BAT_Other', 'Adjusted Net Stock', 'OrdPoint',
-                    'Jeeves Shortage Alert', 'Adjusted Shortage Alert', 'Hidden Shortage', 'Review Reason']
-            show_table(view, cols)
-            st.subheader('🚨 Shortages and hidden shortages')
-            show_table(view[view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']], cols)
-            if lot_summary is not None:
-                needs_review = view[~view['BAT Reconciled'] | view['BAT_Other'].gt(0)]
-                with st.expander(f'⚠️ BAT reconciliation / status review ({len(needs_review)} rows)'):
-                    show_table(needs_review, ['Item No.', 'Item description', 'Inventory balance', 'BAT_Total',
-                                             'BAT Difference', 'BAT_Held', 'BAT_Released', 'BAT_Other', 'Review Reason'])
+            if page == "Inventory":
+                st.header('📦 Inventory Overview')
+                a, b, c, d = st.columns(4)
+                a.metric('Inventory rows', len(view))
+                b.metric('Jeeves shortages', int(view['Jeeves Shortage Alert'].sum()))
+                c.metric('Hold-adjusted shortages', int(view['Adjusted Shortage Alert'].sum()))
+                d.metric('Hidden shortages', int(view['Hidden Shortage'].sum()))
+                st.caption('Adjusted alerts are shown only for items whose positive-balance BAT lot totals reconcile to Jeeves. Missing or mismatched items require manual review.')
+                cols = ['Item No.', 'Item description', 'Item Type', 'Inventory balance', 'RsrvQty', 'Net Stock',
+                        'BAT_Held', 'BAT_Released', 'BAT_Other', 'Adjusted Net Stock', 'OrdPoint',
+                        'Jeeves Shortage Alert', 'Adjusted Shortage Alert', 'Hidden Shortage', 'Review Reason']
+                show_table(view, cols)
+                st.subheader('🚨 Shortages and hidden shortages')
+                show_table(view[view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']], cols)
+                if lot_summary is not None:
+                    needs_review = view[~view['BAT Reconciled'] | view['BAT_Other'].gt(0)]
+                    with st.expander(f'⚠️ BAT reconciliation / status review ({len(needs_review)} rows)'):
+                        show_table(needs_review, ['Item No.', 'Item description', 'Inventory balance', 'BAT_Total',
+                                                 'BAT Difference', 'BAT_Held', 'BAT_Released', 'BAT_Other', 'Review Reason'])
 
             # A missing/zero reorder point disables STOCK replenishment, not customer-demand scheduling.
             # EOQ is optional: no EOQ column was present in the required export schema.
@@ -338,24 +347,26 @@ if inventory_file is not None:
             manufactured['Manufacturing Action'] = manufactured.apply(manufacturing_action, axis=1)
             manufactured['EOQ Build Qty for Review'] = manufactured['EOQ'].where(
                 manufactured['Reorder Trigger'] & manufactured['EOQ'].gt(0))
-            st.header('🏭 Manufacturing Action Center')
-            st.caption('Customer reservations trigger OEM scheduling even with a zero/blank reorder point. '
-                       'MO coverage is quantity-only: verify order allocation, due dates and MO status in Jeeves. '
-                       'For BAT mismatches, usable stock falls back to Jeeves and requires review.')
-            show_table(manufactured, ['Item No.', 'Item description', 'Inventory balance', 'RsrvQty',
-                                      'BAT_Held', 'Adjusted Net Stock', 'OrdPoint', 'EOQ',
-                                      'OrdQtyMO', 'Demand Shortage Qty', 'Additional MO Qty to Review',
-                                      'EOQ Build Qty for Review', 'Hidden Shortage', 'Review Reason',
-                                      'Manufacturing Action'])
-            if eoq_col is None:
-                st.info('EOQ was not found in this Jeeves export. Add its exact column to the export '
-                        'to populate EOQ build recommendations; OEM demand scheduling works without it.')
+            if page == "Manufacturing":
+                st.header('🏭 Manufacturing Action Center')
+                st.caption('Customer reservations trigger OEM scheduling even with a zero/blank reorder point. '
+                           'MO coverage is quantity-only: verify order allocation, due dates and MO status in Jeeves. '
+                           'For BAT mismatches, usable stock falls back to Jeeves and requires review.')
+                show_table(manufactured, ['Item No.', 'Item description', 'Inventory balance', 'RsrvQty',
+                                          'BAT_Held', 'Adjusted Net Stock', 'OrdPoint', 'EOQ',
+                                          'OrdQtyMO', 'Demand Shortage Qty', 'Additional MO Qty to Review',
+                                          'EOQ Build Qty for Review', 'Hidden Shortage', 'Review Reason',
+                                          'Manufacturing Action'])
+                if eoq_col is None:
+                    st.info('EOQ was not found in this Jeeves export. Add its exact column to the export '
+                            'to populate EOQ build recommendations; OEM demand scheduling works without it.')
 
             purchasing = view[(view['Item Type'] == 'Other / review') &
                               (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert'] |
                                view['Jeeves Reorder Alert'] | view['Adjusted Reorder Alert'])].copy()
-            st.header('🛒 Purchasing Action Center')
-            st.caption('Purchased materials appear for shortages OR stock below reorder point. Verify sourcing, existing POs, and demand before ordering.')
+            if page == "Purchasing":
+                st.header('🛒 Purchasing Action Center')
+                st.caption('Purchased materials appear for shortages OR stock below reorder point. Verify sourcing, existing POs, and demand before ordering.')
             purchasing['Shortage Qty'] = (-purchasing['Net Stock']).clip(lower=0)
             purchasing['Planning Shortage Qty'] = purchasing['Adjusted Shortage Qty'].where(
                 purchasing['BAT Reconciled'], purchasing['Shortage Qty'])
@@ -379,14 +390,16 @@ if inventory_file is not None:
                 return 'PO recorded — verify sent / delivery'
             purchasing['Purchasing Action'] = purchasing.apply(po_action, axis=1)
             purchasing['Uncovered Qty if PO Arrives'] = (purchasing['Required Qty for Review'] - purchasing['OrdQtyPO']).clip(lower=0)
-            show_table(purchasing, ['Item No.', 'Item description', 'BAT_Held', 'Net Stock', 'Adjusted Net Stock',
-                                    'OrdPoint', 'Reorder Reason', 'Reorder Gap Qty', 'Planning Shortage Qty',
-                                    'Required Qty for Review', 'OrdQtyPO', 'Uncovered Qty if PO Arrives',
-                                    'Review Reason', 'Purchasing Action'])
-            st.caption('Reorder Gap Qty is a planning signal, not an automatic order quantity or EOQ. Existing POs are considered for the uncovered gap, but PO entries are not proof of supplier acknowledgment.')
+            if page == "Purchasing":
+                show_table(purchasing, ['Item No.', 'Item description', 'BAT_Held', 'Net Stock', 'Adjusted Net Stock',
+                                        'OrdPoint', 'Reorder Reason', 'Reorder Gap Qty', 'Planning Shortage Qty',
+                                        'Required Qty for Review', 'OrdQtyPO', 'Uncovered Qty if PO Arrives',
+                                        'Review Reason', 'Purchasing Action'])
+                st.caption('Reorder Gap Qty is a planning signal, not an automatic order quantity or EOQ. Existing POs are considered for the uncovered gap, but PO entries are not proof of supplier acknowledgment.')
 
-            st.header('📋 Daily Action Queue')
-            st.caption('Start with Needs Attention. Saved reviews are local planning notes, not changes to Jeeves.')
+            if page == "Action Center":
+                st.header('📋 Daily Action Queue')
+                st.caption('Start with Needs Attention. Saved reviews are local planning notes, not changes to Jeeves.')
             try:
                 initialize_review_db()
                 action_frames = []
@@ -482,110 +495,113 @@ if inventory_file is not None:
                             '_signature': signature,
                         })
                 if not action_frames:
-                    st.header('📊 Executive Overview')
-                    k1, k2, k3, k4 = st.columns(4)
-                    k1.metric('Monitored inventory rows', len(view))
-                    k2.metric('Stock shortages', int(
-                        (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
-                    k3.metric('Held BAT lots', int(
-                        bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
-                    k4.metric('Expiration-risk lots', int(
-                        (expiration_review_mask(expiry_actions) |
-                         (expiry_actions['Inventory Category'].eq('Finished Good') &
-                          expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
-                        if not expiry_actions.empty else 0)
-                    st.success('No currently flagged action items.')
+                    if page in ("Overview", "Action Center"):
+                        st.header('📊 Executive Overview')
+                        k1, k2, k3, k4 = st.columns(4)
+                        k1.metric('Monitored inventory rows', len(view))
+                        k2.metric('Stock shortages', int(
+                            (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
+                        k3.metric('Held BAT lots', int(
+                            bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
+                        k4.metric('Expiration-risk lots', int(
+                            (expiration_review_mask(expiry_actions) |
+                             (expiry_actions['Inventory Category'].eq('Finished Good') &
+                              expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
+                            if not expiry_actions.empty else 0)
+                        st.success('No currently flagged action items.')
                 else:
                     queue = pd.DataFrame(action_frames)
                     # Collapse duplicate item/area rows in the selector; review is item-level.
                     queue = queue.drop_duplicates(['Item No.', 'Area'], keep='first')
                     # Executive overview: use the same filtered planning data and action queue.
-                    st.header('📊 Executive Overview')
-                    st.caption('Live snapshot of the selected Jeeves inventory scope and BAT imports. '
-                               'Counts reflect currently flagged actions, not all historical reviews.')
+                    if page == "Overview":
+                        st.header('📊 Executive Overview')
+                        st.caption('Live snapshot of the selected Jeeves inventory scope and BAT imports. '
+                                   'Counts reflect currently flagged actions, not all historical reviews.')
 
-                    k1, k2, k3, k4 = st.columns(4)
-                    k1.metric('Monitored inventory rows', len(view))
-                    k2.metric('Stock shortages', int(
-                        (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
-                    k3.metric('Held BAT lots', int(
-                        bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
-                    k4.metric('Expiration-risk lots', int(
-                        (expiration_review_mask(expiry_actions) |
-                         (expiry_actions['Inventory Category'].eq('Finished Good') &
-                          expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
-                        if not expiry_actions.empty else 0)
+                        k1, k2, k3, k4 = st.columns(4)
+                        k1.metric('Monitored inventory rows', len(view))
+                        k2.metric('Stock shortages', int(
+                            (view['Jeeves Shortage Alert'] | view['Adjusted Shortage Alert']).sum()))
+                        k3.metric('Held BAT lots', int(
+                            bat['Lot Classification'].eq('Hold').sum()) if bat is not None else 0)
+                        k4.metric('Expiration-risk lots', int(
+                            (expiration_review_mask(expiry_actions) |
+                             (expiry_actions['Inventory Category'].eq('Finished Good') &
+                              expiry_actions['Days to Ship-Down'].between(0, 90))).sum())
+                            if not expiry_actions.empty else 0)
 
-                    q1, q2, q3 = st.columns(3)
-                    q1.metric('Needs Attention', int(queue['Queue'].eq('Needs Attention').sum()))
-                    q2.metric('In Progress', int(queue['Queue'].eq('In Progress').sum()))
-                    q3.metric('Resolved', int(queue['Queue'].eq('Resolved').sum()))
+                        q1, q2, q3 = st.columns(3)
+                        q1.metric('Needs Attention', int(queue['Queue'].eq('Needs Attention').sum()))
+                        q2.metric('In Progress', int(queue['Queue'].eq('In Progress').sum()))
+                        q3.metric('Resolved', int(queue['Queue'].eq('Resolved').sum()))
 
-                    chart_left, chart_right = st.columns(2)
-                    with chart_left:
-                        st.subheader('Action items by area')
-                        area_counts = queue.groupby('Area').size().rename('Action items')
-                        st.bar_chart(area_counts)
-                    with chart_right:
-                        st.subheader('Action queue status')
-                        status_counts = queue['Queue'].value_counts().reindex(
-                            ['Needs Attention', 'In Progress', 'Resolved'], fill_value=0)
-                        st.bar_chart(status_counts.rename('Action items'))
+                        chart_left, chart_right = st.columns(2)
+                        with chart_left:
+                            st.subheader('Action items by area')
+                            area_counts = queue.groupby('Area').size().rename('Action items')
+                            st.bar_chart(area_counts)
+                        with chart_right:
+                            st.subheader('Action queue status')
+                            status_counts = queue['Queue'].value_counts().reindex(
+                                ['Needs Attention', 'In Progress', 'Resolved'], fill_value=0)
+                            st.bar_chart(status_counts.rename('Action items'))
 
-                    with st.expander('🔍 Executive overview definitions'):
-                        st.caption('Stock shortages combine Jeeves and reconciled hold-adjusted alerts. '
-                                   'Held BAT lots count all imported positive-balance BAT lots, '
-                                   'regardless of the selected inventory filter. '
-                                   'Expiration-risk lots cover master-listed finished goods within six '
-                                   'months of expiration, chemicals within 90 days, unknown dates, '
-                                   'and finished goods approaching ship-down within 90 days. '
-                                   'Action items are unique per part number and action area. '
-                                   'This overview is informational; confirm actions in Jeeves/BAT.')
-                    st.divider()
+                        with st.expander('🔍 Executive overview definitions'):
+                            st.caption('Stock shortages combine Jeeves and reconciled hold-adjusted alerts. '
+                                       'Held BAT lots count all imported positive-balance BAT lots, '
+                                       'regardless of the selected inventory filter. '
+                                       'Expiration-risk lots cover master-listed finished goods within six '
+                                       'months of expiration, chemicals within 90 days, unknown dates, '
+                                       'and finished goods approaching ship-down within 90 days. '
+                                       'Action items are unique per part number and action area. '
+                                       'This overview is informational; confirm actions in Jeeves/BAT.')
+                        st.divider()
 
-                    groups = ['Needs Attention', 'In Progress', 'Resolved']
-                    tabs = st.tabs([f'{name} ({int(queue["Queue"].eq(name).sum())})' for name in groups])
-                    for tab, group_name in zip(tabs, groups):
-                        with tab:
-                            subset = queue[queue['Queue'].eq(group_name)]
-                            if subset.empty:
-                                st.info('No items in this queue.')
-                            else:
-                                show_table(subset, ['Item No.', 'Item description', 'Area',
-                                                    'Review status', 'Current recommendation',
-                                                    'Changed since resolved'])
-                    st.subheader('📝 Review an action item')
-                    st.caption('Select a queue below, then choose the material to update.')
-                    chosen_group = st.selectbox('Review queue', groups, key='review_queue_filter')
-                    selectable = queue[queue['Queue'].eq(chosen_group)]
-                    if selectable.empty:
-                        st.info('Choose a queue containing items to review.')
-                    else:
-                        options = {
-                            f"{r['Area']} | {r['Item No.']} | {r['Item description']}": r
-                            for _, r in selectable.iterrows()
-                        }
-                        selection = st.selectbox('Choose an action item', list(options), key='review_item')
-                        selected = options[selection]
-                        item_no, action_type = selected['Item No.'], selected['Area']
-                        previous = load_review(item_no, action_type)
-                        statuses = ['Needs review', 'Waiting on PO', 'Waiting on supplier', 'Resolved']
-                        initial_status = selected['Review status']
-                        if selected['Changed since resolved']:
-                            st.warning('Inventory or order information changed since this item was resolved. Review again.')
-                        with st.form(key=f'review_form_{action_type}_{item_no}'):
-                            status = st.selectbox('Review status', statuses,
-                                                  index=statuses.index(initial_status))
-                            notes = st.text_area('Review notes', value=previous[1] if previous else '',
-                                                 placeholder='What did you check? What needs to happen next?')
-                            submitted = st.form_submit_button('Save review')
-                        if submitted:
-                            save_review(item_no, action_type, status, notes, selected['_signature'])
-                            st.success(f'Saved review for {item_no} ({action_type}).')
-                            st.rerun()
-                    st.caption('Only currently flagged items appear in these queues. Expiration items are grouped by part number; inspect lot-level details in the Inventory Expiration Monitor. A resolved item is shown '
-                               'for re-review when its tracked inventory/order values change. '
-                               'Review statuses are saved in material_reviews.db.')
+                    if page == "Action Center":
+                        groups = ['Needs Attention', 'In Progress', 'Resolved']
+                        tabs = st.tabs([f'{name} ({int(queue["Queue"].eq(name).sum())})' for name in groups])
+                        for tab, group_name in zip(tabs, groups):
+                            with tab:
+                                subset = queue[queue['Queue'].eq(group_name)]
+                                if subset.empty:
+                                    st.info('No items in this queue.')
+                                else:
+                                    show_table(subset, ['Item No.', 'Item description', 'Area',
+                                                        'Review status', 'Current recommendation',
+                                                        'Changed since resolved'])
+                        st.subheader('📝 Review an action item')
+                        st.caption('Select a queue below, then choose the material to update.')
+                        chosen_group = st.selectbox('Review queue', groups, key='review_queue_filter')
+                        selectable = queue[queue['Queue'].eq(chosen_group)]
+                        if selectable.empty:
+                            st.info('Choose a queue containing items to review.')
+                        else:
+                            options = {
+                                f"{r['Area']} | {r['Item No.']} | {r['Item description']}": r
+                                for _, r in selectable.iterrows()
+                            }
+                            selection = st.selectbox('Choose an action item', list(options), key='review_item')
+                            selected = options[selection]
+                            item_no, action_type = selected['Item No.'], selected['Area']
+                            previous = load_review(item_no, action_type)
+                            statuses = ['Needs review', 'Waiting on PO', 'Waiting on supplier', 'Resolved']
+                            initial_status = selected['Review status']
+                            if selected['Changed since resolved']:
+                                st.warning('Inventory or order information changed since this item was resolved. Review again.')
+                            with st.form(key=f'review_form_{action_type}_{item_no}'):
+                                status = st.selectbox('Review status', statuses,
+                                                      index=statuses.index(initial_status))
+                                notes = st.text_area('Review notes', value=previous[1] if previous else '',
+                                                     placeholder='What did you check? What needs to happen next?')
+                                submitted = st.form_submit_button('Save review')
+                            if submitted:
+                                save_review(item_no, action_type, status, notes, selected['_signature'])
+                                st.success(f'Saved review for {item_no} ({action_type}).')
+                                st.rerun()
+                        st.caption('Only currently flagged items appear in these queues. Expiration items are grouped by part number; inspect lot-level details in the Inventory Expiration Monitor. A resolved item is shown '
+                                   'for re-review when its tracked inventory/order values change. '
+                                   'Review statuses are saved in material_reviews.db.')
             except sqlite3.Error as exc:
                 st.error(f'Could not access local review database: {exc}')
 
@@ -593,84 +609,86 @@ if inventory_file is not None:
         st.error(f'Jeeves import or processing error: {exc}')
 
 if bat is not None:
-    st.header('🧩 BAT Lot Intelligence')
-    st.subheader('🛑 Inventory Hold Monitor')
-    hold_scope = st.radio(
-        'Hold monitor scope',
-        ['Monitored parts', 'All BAT items'],
-        index=0 if master is not None else 1,
-        disabled=master is None,
-        horizontal=True,
-        key='hold_scope',
-    )
-    hold_bat = bat[bat['Item No.'].isin(master['Item No.'])].copy() if hold_scope == 'Monitored parts' else bat.copy()
-    held_lots = hold_bat[hold_bat['Lot Classification'].eq('Hold')].copy()
-    other_lots = hold_bat[hold_bat['Lot Classification'].eq('Other / review')].copy()
-    a, b, c = st.columns(3)
-    a.metric('Lots on hold', len(held_lots))
-    b.metric('Items with held lots', held_lots['Item No.'].nunique())
-    c.metric('Lots with other statuses', len(other_lots))
-    st.caption('Hold monitor counts and rows follow the selected scope. All BAT lots remain available for inventory reconciliation and expiration analysis.')
-    hold_cols = ['Item No.', 'Item description', 'Batch/Lot No.', 'Batch/Lot status', 'Batch/Lot balance']
-    show_table(held_lots, hold_cols)
-    with st.expander('🔎 Other BAT lot statuses — review before treating as usable'):
-        show_table(other_lots, hold_cols)
+    if page == "Hold Monitor":
+        st.header('🧩 BAT Lot Intelligence')
+        st.subheader('🛑 Inventory Hold Monitor')
+        hold_scope = st.radio(
+            'Hold monitor scope',
+            ['Monitored parts', 'All BAT items'],
+            index=0 if master is not None else 1,
+            disabled=master is None,
+            horizontal=True,
+            key='hold_scope',
+        )
+        hold_bat = bat[bat['Item No.'].isin(master['Item No.'])].copy() if hold_scope == 'Monitored parts' else bat.copy()
+        held_lots = hold_bat[hold_bat['Lot Classification'].eq('Hold')].copy()
+        other_lots = hold_bat[hold_bat['Lot Classification'].eq('Other / review')].copy()
+        a, b, c = st.columns(3)
+        a.metric('Lots on hold', len(held_lots))
+        b.metric('Items with held lots', held_lots['Item No.'].nunique())
+        c.metric('Lots with other statuses', len(other_lots))
+        st.caption('Hold monitor counts and rows follow the selected scope. All BAT lots remain available for inventory reconciliation and expiration analysis.')
+        hold_cols = ['Item No.', 'Item description', 'Batch/Lot No.', 'Batch/Lot status', 'Batch/Lot balance']
+        show_table(held_lots, hold_cols)
+        with st.expander('🔎 Other BAT lot statuses — review before treating as usable'):
+            show_table(other_lots, hold_cols)
 
-    # Monitor master-listed 701 chemicals and 501 finished goods from positive-balance BAT lots.
-    st.subheader('📅 Inventory Expiration Monitor — Chemicals & Finished Goods')
-    if master is None:
-        st.error('Inventory Expiration Monitor requires a valid master_parts.xlsx file.')
-        expiring_inventory = bat.iloc[0:0].copy()
-    else:
-        eligible = bat['Item No.'].str.startswith(('701', '501'), na=False)
-        monitored = bat['Item No.'].isin(master['Item No.'])
-        expiring_inventory = bat.loc[eligible & monitored].copy()
-        st.caption('Showing master-listed 701-series chemicals and 501-series finished goods with positive BAT lot balances.')
+    if page == "Expiration":
+        # Monitor master-listed 701 chemicals and 501 finished goods from positive-balance BAT lots.
+        st.subheader('📅 Inventory Expiration Monitor — Chemicals & Finished Goods')
+        if master is None:
+            st.error('Inventory Expiration Monitor requires a valid master_parts.xlsx file.')
+            expiring_inventory = bat.iloc[0:0].copy()
+        else:
+            eligible = bat['Item No.'].str.startswith(('701', '501'), na=False)
+            monitored = bat['Item No.'].isin(master['Item No.'])
+            expiring_inventory = bat.loc[eligible & monitored].copy()
+            st.caption('Showing master-listed 701-series chemicals and 501-series finished goods with positive BAT lot balances.')
 
-    expiring_inventory['Inventory Category'] = 'Chemical'
-    expiring_inventory.loc[
-        expiring_inventory['Item No.'].str.startswith('501', na=False), 'Inventory Category'
-    ] = 'Finished Good'
+        expiring_inventory['Inventory Category'] = 'Chemical'
+        expiring_inventory.loc[
+            expiring_inventory['Item No.'].str.startswith('501', na=False), 'Inventory Category'
+        ] = 'Finished Good'
 
-    expiring_inventory['Original Expiration Date'] = expiring_inventory['Expiration date'].astype(str)
-    parsed_dates = expiring_inventory['Expiration date'].apply(parse_bat_expiration)
-    expiring_inventory['Expiration date'] = pd.to_datetime(
-        parsed_dates.map(lambda result: result[0]), errors='coerce'
-    )
-    expiring_inventory['Date Corrected'] = parsed_dates.map(lambda result: result[1])
-    expiring_inventory['Days Until Expiration'] = (
-        expiring_inventory['Expiration date'] - pd.Timestamp.today().normalize()
-    ).dt.days
-    expiring_inventory['Expiration Status'] = expiring_inventory['Days Until Expiration'].apply(expiry_label)
-    expiring_inventory = add_shipdown_fields(expiring_inventory)
+        expiring_inventory['Original Expiration Date'] = expiring_inventory['Expiration date'].astype(str)
+        parsed_dates = expiring_inventory['Expiration date'].apply(parse_bat_expiration)
+        expiring_inventory['Expiration date'] = pd.to_datetime(
+            parsed_dates.map(lambda result: result[0]), errors='coerce'
+        )
+        expiring_inventory['Date Corrected'] = parsed_dates.map(lambda result: result[1])
+        expiring_inventory['Days Until Expiration'] = (
+            expiring_inventory['Expiration date'] - pd.Timestamp.today().normalize()
+        ).dt.days
+        expiring_inventory['Expiration Status'] = expiring_inventory['Days Until Expiration'].apply(expiry_label)
+        expiring_inventory = add_shipdown_fields(expiring_inventory)
 
-    category_filter = st.selectbox(
-        'Inventory category', ['All', 'Chemicals', 'Finished Goods'], key='expiration_category'
-    )
-    expiry_view = expiring_inventory
-    if category_filter == 'Chemicals':
-        expiry_view = expiring_inventory[expiring_inventory['Inventory Category'].eq('Chemical')]
-    elif category_filter == 'Finished Goods':
-        expiry_view = expiring_inventory[expiring_inventory['Inventory Category'].eq('Finished Good')]
+        category_filter = st.selectbox(
+            'Inventory category', ['All', 'Chemicals', 'Finished Goods'], key='expiration_category'
+        )
+        expiry_view = expiring_inventory
+        if category_filter == 'Chemicals':
+            expiry_view = expiring_inventory[expiring_inventory['Inventory Category'].eq('Chemical')]
+        elif category_filter == 'Finished Goods':
+            expiry_view = expiring_inventory[expiring_inventory['Inventory Category'].eq('Finished Good')]
 
-    st.caption('Century-adjusted dates are provisional; verify them against BAT. Held lots remain visible but are not assumed usable.')
-    a, b, c, d = st.columns(4)
-    a.metric('Tracked lots', len(expiry_view))
-    b.metric('Expired', int(expiry_view['Days Until Expiration'].lt(0).sum()))
-    c.metric('Expiring within 30 days', int(expiry_view['Days Until Expiration'].between(0, 30).sum()))
-    d.metric('Within review window', int((expiration_review_mask(expiry_view) & expiry_view['Days Until Expiration'].ge(0)).sum()))
-    exp_cols = ['Inventory Category', 'Item No.', 'Item description', 'Batch/Lot No.',
-                'Batch/Lot status', 'Batch/Lot balance', 'Original Expiration Date',
-                'Expiration date', 'Date Corrected', 'Days Until Expiration', 'Expiration Status',
-                'Ship-Down Date', 'Days to Ship-Down', 'Ship-Down Status']
-    show_table(expiry_view, exp_cols)
-    st.subheader('⚠️ Expiration alerts (finished goods: 6 months; chemicals: 90 days; unknown dates)')
-    shipdown_soon = (expiry_view['Inventory Category'].eq('Finished Good')
-                     & expiry_view['Days to Ship-Down'].between(0, 90))
-    show_table(expiry_view[expiration_review_mask(expiry_view) | shipdown_soon], exp_cols)
-    st.caption('Ship-down is six calendar months before expiration for finished goods. The 90-day upcoming cutoff alerts extend visibility beyond the six-month expiration window. Confirm shipment eligibility in Jeeves and customer requirements.')
-    with st.expander('🔎 Date validation — century-adjusted lots'):
-        show_table(expiry_view[expiry_view['Date Corrected']], exp_cols)
+        st.caption('Century-adjusted dates are provisional; verify them against BAT. Held lots remain visible but are not assumed usable.')
+        a, b, c, d = st.columns(4)
+        a.metric('Tracked lots', len(expiry_view))
+        b.metric('Expired', int(expiry_view['Days Until Expiration'].lt(0).sum()))
+        c.metric('Expiring within 30 days', int(expiry_view['Days Until Expiration'].between(0, 30).sum()))
+        d.metric('Within review window', int((expiration_review_mask(expiry_view) & expiry_view['Days Until Expiration'].ge(0)).sum()))
+        exp_cols = ['Inventory Category', 'Item No.', 'Item description', 'Batch/Lot No.',
+                    'Batch/Lot status', 'Batch/Lot balance', 'Original Expiration Date',
+                    'Expiration date', 'Date Corrected', 'Days Until Expiration', 'Expiration Status',
+                    'Ship-Down Date', 'Days to Ship-Down', 'Ship-Down Status']
+        show_table(expiry_view, exp_cols)
+        st.subheader('⚠️ Expiration alerts (finished goods: 6 months; chemicals: 90 days; unknown dates)')
+        shipdown_soon = (expiry_view['Inventory Category'].eq('Finished Good')
+                         & expiry_view['Days to Ship-Down'].between(0, 90))
+        show_table(expiry_view[expiration_review_mask(expiry_view) | shipdown_soon], exp_cols)
+        st.caption('Ship-down is six calendar months before expiration for finished goods. The 90-day upcoming cutoff alerts extend visibility beyond the six-month expiration window. Confirm shipment eligibility in Jeeves and customer requirements.')
+        with st.expander('🔎 Date validation — century-adjusted lots'):
+            show_table(expiry_view[expiry_view['Date Corrected']], exp_cols)
 
 st.divider()
 st.caption('Manufacturing Intelligence • Local development version')
